@@ -69,7 +69,7 @@
 !*.elf
 !*.bmm
 !*.xmp
-
+!*.py
 # add by users,chris
 .Xil/
 bft_output/
