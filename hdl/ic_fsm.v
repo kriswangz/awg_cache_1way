@@ -66,11 +66,11 @@ module ic_fsm(
     parameter  CACHE_DEPTH = 512; 
     
     
-    localparam  IDLE        =   3'd0;
-    localparam  IS_PRELOAD  =   3'd1;
-    localparam  PREFILL     =   3'd2;
-    localparam  FETCH       =   3'd3;
-    localparam  REFILL      =   3'd4;
+    localparam  IDLE        =   3'b000;
+    localparam  IS_PRELOAD  =   3'b001;
+    localparam  PREFILL     =   3'b011;
+    localparam  FETCH       =   3'b010;
+    localparam  REFILL      =   3'b110;
 
    
 
@@ -102,11 +102,14 @@ always @(*)begin
         IS_PRELOAD:begin
         
             if(preload_over)begin
+
                 if(cpu_read_valid) nstate = FETCH;
+
+                else if(stop)  nstate = IDLE;
+
                 else nstate = IS_PRELOAD;
+
             end
-            
-            else if(stop)  nstate = IDLE;
             
             else nstate = PREFILL;
             
@@ -125,10 +128,11 @@ always @(*)begin
 
         //state machine will change untill tag_hit or tag_miss is deceted.
         FETCH:begin
-        
-            if(tag_hit) nstate = IS_PRELOAD;
             
-            else if(tag_miss) nstate = REFILL;
+            // cpu_read_valid need deasserts, and time machine will turn into IS_PRELOAD.
+            if( tag_hit && (!cpu_read_valid) ) nstate = IS_PRELOAD;
+            
+            else if( tag_miss ) nstate = REFILL;
             
             else nstate = FETCH;
             
@@ -157,9 +161,6 @@ always @(posedge clk or negedge rst_n)begin
                 ic_read_dma_addr    <=      33'd0;  
                 ic_read_dma_valid   <=      1'b0;
 
-                tag_hit             <=      1'b0;
-                tag_miss            <=      1'b0;
-
                 tag_wea             <=      1'b0;
                 tag_addra           <=      9'd0;
                 tag_dina            <=      20'd0;
@@ -184,9 +185,6 @@ always @(posedge clk or negedge rst_n)begin
                 ic_read_dma_addr    <=      128'd0;   
                 ic_read_dma_valid   <=      1'b0;
 
-                tag_hit             <=      1'b0;
-                tag_miss            <=      1'b0;
-
                 tag_wea             <=      1'b0;
                 tag_addra           <=      9'd0;
                 tag_dina            <=      20'd0;
@@ -198,7 +196,10 @@ always @(posedge clk or negedge rst_n)begin
                 ram_addrb           <=      9'd0;
 
                 cnt_prefill         <=      10'd0;
-                cnt_refill          <=      10'd0;                
+                cnt_refill          <=      10'd0;
+                
+                //when stop signal is asserted, cache should be updated into idle state.
+                preload_over        <=      'b0;                 
 
             end
             
@@ -209,9 +210,6 @@ always @(posedge clk or negedge rst_n)begin
                 //update instr read addr, this register is updated by host from axi lite channel.
                 ic_read_dma_addr    <=      first_addr;   
                 ic_read_dma_valid   <=      1'b0;
-
-                tag_hit             <=      1'b0;
-                tag_miss            <=      1'b0;
 
                 tag_wea             <=      1'b0;
                 tag_addra           <=      9'd0;
@@ -271,14 +269,14 @@ always @(posedge clk or negedge rst_n)begin
                 tag_addrb           <=      cpu_read_addr[12:4];
 
                 ram_addrb           <=      cpu_read_addr[12:4];
-                
-                
+                     
                 if(tag_hit)begin
                     ic_data             <=      ram_doutb;
                     cpu_read_ack        <=      'b1;
                 end
                 else if(tag_miss)begin
-                    ic_read_dma_addr    <=      cpu_read_addr;          //update read address which is ready for refill operation.
+                    //update read address which is ready for refill operation.
+                    ic_read_dma_addr    <=      cpu_read_addr;          
                     cpu_read_ack        <=      'b0;
                 end 
 
@@ -317,12 +315,18 @@ always @(posedge clk or negedge rst_n)begin
                     ic_read_dma_valid   <=      1'b0;
                     tag_wea             <=      1'b0;
                     ram_wea             <=      1'b0;
+                    
+                    ic_data             <=      'd0; 
+                    cpu_read_ack        <=      'b0;
                 end
                 
                 //stay in read operation.
                 else begin
                     ic_read_dma_valid   <=      1'b1;
                     ic_read_dma_addr    <=      ic_read_dma_addr;
+
+                    ic_data             <=      'd0; 
+                    cpu_read_ack        <=      'b0;
                 end
             end
 
