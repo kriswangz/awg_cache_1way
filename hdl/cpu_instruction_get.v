@@ -3,7 +3,7 @@ input 		clk,
 input 		rstn,
 input		start,
 input		stop,
-input[17:0]	start_addr,
+input[31:0]	start_addr,
 
 input		read_done, //from instruction mem module 
 input[127:0]read_data,
@@ -48,19 +48,35 @@ reg	 [31:0]	read_addr;
 reg  [15:0] counter_jump[7:0];//jump counters
 
 assign 		axi_araddr 		= read_addr;
-assign 		axi_read_txn	= read_en;
+//assign 		axi_read_txn	= read_en;
+assign 		axi_read_txn	= (!read_en_reg2) && read_en_reg1;
 
 /********jump instrcution transport***********/
 assign		segment_en 				= read_data_temp[127:125]==SEGMENT_OPERATION ? 1'b1:1'b0;
 assign		segment_instruc 		= read_data_temp;
 assign		segment_instruc_valid	= read_valid_temp;
-/********jump instrcution parameter determination***********/
+/********jump instrcution parameter determination***********/     // read_data_temp's bits wrong??????
 assign		jump_en					= read_data_temp[127:125]==JUM_OPERATION ? 1'b1:1'b0;
 assign		jump_addr				= read_data_temp[127:125]==JUM_OPERATION ? read_data_temp[95:64]:jump_addr;
 assign		counter_num				= read_data_temp[127:125]==JUM_OPERATION ? read_data_temp[47:32]:counter_num;
 assign		jump_times				= read_data_temp[127:125]==JUM_OPERATION ? read_data_temp[15:0] :jump_times;
 
+reg read_en_reg1;
+reg read_en_reg2;
 
+always @(posedge clk or negedge rstn)begin
+	if(!rstn)begin
+		read_en_reg1 <=	1'b0;
+		read_en_reg2 <= 1'b0;
+	end
+
+	else begin
+		read_en_reg1 <=	read_en;
+		read_en_reg2 <= read_en_reg1;
+	end
+end
+
+//time machine
 always @(posedge clk)
 	begin
 		if(!rstn)
@@ -77,7 +93,7 @@ always @(*)
 				else
 					nstate	=	IDLE;
 			GET_1ST_INSTRUC:
-				if(read_done) //wait for read done signal from module : instruction_mem
+				if(read_valid) //wait for read done signal from module : instruction_mem
 					nstate	=	WAIT_GENERATE;
 				else
 					nstate	=	GET_1ST_INSTRUC;
@@ -92,7 +108,7 @@ always @(*)
 				else
 					nstate	=	WAIT_GENERATE;
 			GET_INSTRUC:
-				if(read_done)
+				if(read_valid)
 					nstate	=	JUDGE_INSTRUC;
 				else
 					nstate	=	GET_INSTRUC;
@@ -120,72 +136,93 @@ always @(posedge clk)
 					read_en			<= 1'b0;
 					read_addr		<= 'd0;
 			end
-		else case(cstate[2:0])
-			IDLE:
-				begin
-				for(i=0;i<7;i=i+1)
-				begin
-					counter_jump[i] <='d0;
-				end
-					read_en		<= 1'b0;
-					read_addr	<= 'd0;
-				end
-			GET_1ST_INSTRUC:
-				begin
-					read_addr	<= start_addr;
-					read_en 	<= 1'b1;
-					if(read_valid)
-					read_data_temp	<= read_data;
-					else
-					read_data_temp	<= read_data_temp;//latch read data
-
-					if(read_data[127:125]==SEGMENT_OPERATION)
-					read_valid_temp	<= read_valid;    //if read data[127:125] is 3'b101,then read_valid would assert.
-					else
-					read_valid_temp <= 1'b0;
-				end
-			WAIT_GENERATE:
-				begin
-					read_en 	<= 1'b0;
-				if(generate_done)
-					read_addr	<= read_addr	+	32'd16;   
-				else
-					read_addr	<= read_addr;
-				end
-			GET_INSTRUC:
-				begin
-					read_en 	<= 1'b1;
-					if(read_valid)
-					read_data_temp	<= read_data;
-					else
-					read_data_temp	<= read_data_temp;//latch read data
-
-					if(read_data[127:125]==SEGMENT_OPERATION)
-					read_valid_temp	<= read_valid;
-					else
-					read_valid_temp <= 1'b0;
-				end
-			JUDGE_INSTRUC:
-				begin
-					read_en 	<= 1'b0;
-				if(jump_en)
-				begin
-					if(counter_num!=0)
-					counter_jump[counter_num]<= counter_jump[counter_num] +16'd1;
-					else
-					counter_jump[counter_num]<= counter_jump[counter_num];
-					end
-				end
-			JUMP_COMPARE:
-				begin
-				if(counter_jump[counter_num]<jump_times)
-					read_addr	<= jump_addr;
-				else
+		else begin
+			case(cstate[2:0])
+				IDLE:
 					begin
-					read_addr	<= read_addr+32'd16;
-					counter_jump[counter_num]<= 16'd0;
+
+						for(i=0;i<7;i=i+1)
+						begin
+							counter_jump[i] <='d0;
+						end
+
+						read_en		<= 1'b0;
+						read_addr	<= 32'd0;
+
 					end
-				end
+				GET_1ST_INSTRUC:
+					begin
+						read_addr	<= start_addr;
+						read_en 	<= 1'b1;
+						if(read_valid)
+						read_data_temp	<= read_data;
+						else
+						read_data_temp	<= read_data_temp;//latch read data
+
+						if(read_data[127:125]==SEGMENT_OPERATION)
+						read_valid_temp	<= read_valid;    //if read data[127:125] is 3'b101,then read_valid would assert.
+						else
+						read_valid_temp <= 1'b0;
+					end
+				WAIT_GENERATE:
+					begin
+						read_en 	<= 1'b0;
+
+						if(generate_done)
+							read_addr	<= read_addr + 32'd16;   
+						else
+							read_addr	<= read_addr;
+					end
+				GET_INSTRUC:
+					begin
+						read_en 	<= 1'b1;
+						if(read_valid)
+						read_data_temp	<= read_data;
+						else
+						read_data_temp	<= read_data_temp;//latch read data
+
+						if(read_data[127:125]==SEGMENT_OPERATION)
+						read_valid_temp	<= read_valid;
+						else
+						read_valid_temp <= 1'b0;
+					end
+				JUDGE_INSTRUC:
+					begin
+						read_en 	<= 1'b0;
+						
+						if(jump_en)
+						begin
+							if(counter_num!=0)
+							counter_jump[counter_num]<= counter_jump[counter_num] +16'd1;
+							else
+							counter_jump[counter_num]<= counter_jump[counter_num];
+						end
+					end
+				JUMP_COMPARE:
+					begin
+
+						read_en 	<= 1'b0;
+
+						if(counter_jump[counter_num]==jump_times)begin
+							read_addr	<= read_addr+32'd16;
+							counter_jump[counter_num]<= 16'd0;
+						end
+						else begin
+							read_addr	<= jump_addr;
+						end
+
+						// if(counter_jump[counter_num]<jump_times)
+						// 	read_addr	<= jump_addr;
+						// else
+						
+						// begin
+						// 	read_addr	<= read_addr+32'd16;
+						// 	counter_jump[counter_num]<= 16'd0;
+						// end
+
+					end
+
 			endcase
+		end
 	end
 endmodule
