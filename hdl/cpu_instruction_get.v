@@ -155,18 +155,19 @@ always @(posedge clk)
 						read_addr	<= start_addr;
 						read_en 	<= 1'b1;
 						if(read_valid)
-						read_data_temp	<= read_data;
+							read_data_temp	<= read_data;
 						else
-						read_data_temp	<= read_data_temp;//latch read data
+							read_data_temp	<= read_data_temp;//latch read data
 
 						if(read_data[127:125]==SEGMENT_OPERATION)
-						read_valid_temp	<= read_valid;    //if read data[127:125] is 3'b101,then read_valid would assert.
+							read_valid_temp	<= read_valid;    //if read data[127:125] is 3'b101,then read_valid would assert.
 						else
-						read_valid_temp <= 1'b0;
+							read_valid_temp <= 1'b0;
 					end
 				WAIT_GENERATE:
 					begin
 						read_en 	<= 1'b0;
+						read_valid_temp <= 1'b0;
 
 						if(generate_done)
 							read_addr	<= read_addr + 32'd16;   
@@ -188,8 +189,12 @@ always @(posedge clk)
 					end
 				JUDGE_INSTRUC:
 					begin
-						read_en 	<= 1'b0;
 						
+						//when jump instruvtion is read valid, disable read data and deassert read_valid
+						//signal which is used by descriptor_generator.v
+						read_en 	<= 1'b0;
+						read_valid_temp <= 1'b0;
+
 						if(jump_en)
 						begin
 							if(counter_num!=0)
@@ -202,23 +207,24 @@ always @(posedge clk)
 					begin
 
 						read_en 	<= 1'b0;
+						read_valid_temp <= 1'b0;
 
-						if(counter_jump[counter_num]==jump_times)begin
-							read_addr	<= read_addr+32'd16;
-							counter_jump[counter_num]<= 16'd0;
-						end
-						else begin
-							read_addr	<= jump_addr;
-						end
-
-						// if(counter_jump[counter_num]<jump_times)
-						// 	read_addr	<= jump_addr;
-						// else
-						
-						// begin
+						// if(counter_jump[counter_num]==jump_times)begin
 						// 	read_addr	<= read_addr+32'd16;
 						// 	counter_jump[counter_num]<= 16'd0;
 						// end
+						// else begin
+						// 	read_addr	<= jump_addr;
+						// end
+
+						if(counter_jump[counter_num]<jump_times)
+							read_addr	<= jump_addr;
+						else
+						
+						begin
+							read_addr	<= read_addr+32'd16;
+							counter_jump[counter_num]<= 16'd0;
+						end
 
 					end
 

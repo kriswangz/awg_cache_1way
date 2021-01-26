@@ -110,6 +110,8 @@ always @(*)begin
                 else nstate = IS_PRELOAD;
 
             end
+
+            else if(stop) nstate = IDLE;
             
             else nstate = PREFILL;
             
@@ -224,7 +226,7 @@ always @(posedge clk or negedge rst_n)begin
                 cnt_prefill         <=      10'd0;
                 cnt_refill          <=      10'd0;
                 
-                
+                preload_over        <=      preload_over; 
             end
 
             //preload data form address which is loaded by host(first address).
