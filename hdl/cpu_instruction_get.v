@@ -10,6 +10,7 @@ input[127:0]read_data,
 input		read_valid,
 
 input		generate_done,
+input		desc_gen_last,
 
 output[31:0]axi_araddr,
 output		axi_read_txn,
@@ -21,12 +22,12 @@ output		 segment_instruc_valid
 localparam	SEGMENT_OPERATION 	= 3'b101;   //wafeform generation sheet :波形合成方案
 localparam	JUM_OPERATION		= 3'b111;       //
 
-localparam 	IDLE 			= 3'b000;             //the steps of waveform generation, state IDLE wouldnt
-localparam	GET_1ST_INSTRUC	= 3'b001;       //play the role in the circle
-localparam  WAIT_GENERATE	= 3'b011;
-localparam	GET_INSTRUC		= 3'b010;
-localparam  JUDGE_INSTRUC	= 3'b110;
-localparam	JUMP_COMPARE  	= 3'b100;
+localparam 	IDLE 				  = 	3'b000;             //the steps of waveform generation, state IDLE wouldnt
+localparam	GET_1ST_INSTRUC		  = 	3'b001;       //play the role in the circle
+localparam  WAIT_GENERATE		  = 	3'b011;
+localparam	GET_INSTRUC			  = 	3'b010;
+localparam  DECODE_INSTRUC		  = 	4'b110;
+localparam	JUMP_COMPARE  		  = 	4'b100;
 
 reg	[2:0]	cstate;
 reg	[2:0]	nstate;
@@ -92,29 +93,41 @@ always @(*)
 					nstate 	=	GET_1ST_INSTRUC;
 				else
 					nstate	=	IDLE;
+
+			//first instruction must be segement instruction
 			GET_1ST_INSTRUC:
 				if(read_valid) //wait for read done signal from module : instruction_mem
 					nstate	=	WAIT_GENERATE;
 				else
 					nstate	=	GET_1ST_INSTRUC;
+
 			WAIT_GENERATE:
 				if(generate_done) //wait for generation done signal from module : Descriptor Generator 
-					begin
+				begin
 					if(stop)
-					nstate  =  IDLE;
+						nstate  =  IDLE;
 					else
-					nstate	=	GET_INSTRUC;
-					end
+						nstate	=	GET_INSTRUC;
+				end
 				else
 					nstate	=	WAIT_GENERATE;
 			GET_INSTRUC:
 				if(read_valid)
-					nstate	=	JUDGE_INSTRUC;
+					nstate	=	DECODE_INSTRUC;
 				else
 					nstate	=	GET_INSTRUC;
-			JUDGE_INSTRUC:               //judge statement : segment or jump
-				if(segment_en)
-					nstate	=	WAIT_GENERATE;
+			
+
+			DECODE_INSTRUC:               //judge statement : segment or jump
+			 	//wait previous segement generating done
+				if(segment_en)begin
+
+					if(desc_gen_last)
+						nstate	=	WAIT_GENERATE;
+					else nstate = DECODE_INSTRUC;
+
+				end
+					
 				else if(jump_en)
 					nstate	=	JUMP_COMPARE;
 				else
@@ -152,8 +165,10 @@ always @(posedge clk)
 					end
 				GET_1ST_INSTRUC:
 					begin
+						
 						read_addr	<= start_addr;
 						read_en 	<= 1'b1;
+
 						if(read_valid)
 							read_data_temp	<= read_data;
 						else
@@ -163,9 +178,12 @@ always @(posedge clk)
 							read_valid_temp	<= read_valid;    //if read data[127:125] is 3'b101,then read_valid would assert.
 						else
 							read_valid_temp <= 1'b0;
+
 					end
+				
 				WAIT_GENERATE:
 					begin
+
 						read_en 	<= 1'b0;
 						read_valid_temp <= 1'b0;
 
@@ -173,27 +191,30 @@ always @(posedge clk)
 							read_addr	<= read_addr + 32'd16;   
 						else
 							read_addr	<= read_addr;
+
 					end
 				GET_INSTRUC:
 					begin
+						
 						read_en 	<= 1'b1;
-						if(read_valid)
-						read_data_temp	<= read_data;
-						else
-						read_data_temp	<= read_data_temp;//latch read data
 
-						if(read_data[127:125]==SEGMENT_OPERATION)
-						read_valid_temp	<= read_valid;
+						if(read_valid)
+							read_data_temp	<= read_data;
 						else
-						read_valid_temp <= 1'b0;
+							read_data_temp	<= read_data_temp;//latch read data
+							
 					end
-				JUDGE_INSTRUC:
+				DECODE_INSTRUC:
 					begin
 						
+						if(desc_gen_last)
+							read_valid_temp	<= 1'b1;
+						else
+							read_valid_temp <= 1'b0;
+
 						//when jump instruvtion is read valid, disable read data and deassert read_valid
 						//signal which is used by descriptor_generator.v
 						read_en 	<= 1'b0;
-						read_valid_temp <= 1'b0;
 
 						if(jump_en)
 						begin
